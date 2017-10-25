@@ -46,15 +46,16 @@ class staticDetectorVC: UIViewController, UIImagePickerControllerDelegate, UINav
     func classifier(image: UIImage){
         let start = CACurrentMediaTime()
         self.imageDisplayer.image = image
-        let resizedImage = self.resizeImage(image: image, newWidth: CGFloat(500))
+        //let resizedImage = self.resizeImage(image: image, newWidth: CGFloat(500))
         do{
-            if let result = caffe.prediction(regarding: resizedImage!){
-                let sorted = result.map{$0.floatValue}.enumerated().sorted(by: {$0.element > $1.element})[0...10]
-                let finalResult = sorted.map{"\($0.element*100)% chance to be: \(classMapping[$0.offset]!)"}.joined(separator: "\n\n")
+            if let result = caffe.prediction(regarding: image){
+                //let sorted = result.map{$0.floatValue}.enumerated().sorted(by: {$0.element > $1.element})[0...10]
+                //let finalResult = sorted.map{"\($0.element*100)% chance to be: \(classMapping[$0.offset]!)"}.joined(separator: "\n\n")
+                print (result);
                 let end = CACurrentMediaTime()
                 self.elaspe = "\(end - start) seconds"
-                print("Time consumption: \(self.elaspe) \nResult is \n\(finalResult)")
-                self.resultDisplayer.text = "Time consumption: \(self.elaspe) \nResults:\(finalResult)"
+                //print("Time consumption: \(self.elaspe) \nResult is \n\(finalResult)")
+                //self.resultDisplayer.text = "Time consumption: \(self.elaspe) \nResults:\(finalResult)"
             }
         } catch _ {
             print(self.foundNilErrorMsg, "classifier function went wrong")

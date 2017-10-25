@@ -85,9 +85,92 @@ CGContextRef CreateRGBABitmapContext (CGImageRef inImage)
 
 @property (atomic, assign) BOOL busyWithInference;
 
+@property (weak, nonatomic) IBOutlet UIImageView *originalImageView;
+@property (weak, nonatomic) IBOutlet UIImageView *finalImageView;
+//@property (nonatomic) NSURL *imageURL;
+@property (weak, nonatomic) IBOutlet UILabel *resultLabel;
+@property (nonatomic) CVPixelBufferRef *pixelRef;
+
+
 @end
 
 @implementation Caffe2
+
+- (UIImage *)stepOne: (UIImage*) originalImage {
+    
+    // NSURL* imageURL = [NSURL URLWithString:stringURL];
+
+    // NSData *data = [NSData dataWithContentsOfURL:imageURL];
+    // UIImage *originalImage = [UIImage imageWithData:data];
+    CGSize newSize = CGSizeMake(256, 256);
+    UIGraphicsBeginImageContextWithOptions(newSize, YES, 1.0);
+    [originalImage drawInRect:CGRectMake(0, 0, newSize.width, newSize.height)];
+    
+    UIImage *newImage = UIGraphicsGetImageFromCurrentImageContext();
+    UIGraphicsEndImageContext();
+    return newImage;
+}
+
+
+
+- (UIImage *) stepTwo:(UIImage *) originalImage width:(CGFloat)width height:(CGFloat) height {
+    CGFloat y = (originalImage.size.height - height)/2;
+
+    CGFloat x = (originalImage.size.width - width)/2;
+    
+    CGRect rect = CGRectMake(x, y, width, height);
+    CGImageRef imageRef = CGImageCreateWithImageInRect(originalImage.CGImage, rect);
+    UIImage *newImage = [UIImage imageWithCGImage: imageRef scale: originalImage.scale orientation: originalImage.imageOrientation];
+
+    return newImage;
+}
+
+
+- (nullable CVPixelBufferRef) pixelBufferFromImage2: (UIImage*) image {
+
+    NSDictionary *attributes = @{
+                                  (__bridge NSString *)kCVPixelBufferCGImageCompatibilityKey: @(YES),
+                                  (__bridge NSString *)kCVPixelBufferCGBitmapContextCompatibilityKey: @(YES)};
+    
+    CVPixelBufferRef pixelBuffer;
+    CVReturn status = CVPixelBufferCreate(kCFAllocatorDefault, (int) image.size.width, (int) image.size.height, kCVPixelFormatType_32ARGB, (__bridge CFDictionaryRef) attributes, &pixelBuffer);
+    
+    if (status != kCVReturnSuccess) {
+        return nil;
+    }
+    
+    CVPixelBufferLockBaseAddress(pixelBuffer, kCVPixelBufferLock_ReadOnly);
+    void (*data) = CVPixelBufferGetBaseAddress(pixelBuffer);
+    CGColorSpaceRef rgbColorSpace = CGColorSpaceCreateDeviceRGB();
+    struct CGContext *context = CGBitmapContextCreate(data,(int) image.size.width, (int) image.size.height, 8, CVPixelBufferGetBytesPerRow(pixelBuffer), rgbColorSpace, kCGImageAlphaNoneSkipFirst);
+    CGContextTranslateCTM(context, 0, image.size.height);
+    CGContextScaleCTM(context, 1.0, -1.0);
+    UIGraphicsPushContext(context);
+    [image drawInRect:CGRectMake(0, 0, (int) image.size.width, (int) image.size.height)];
+    UIGraphicsPopContext();
+    CVPixelBufferUnlockBaseAddress(pixelBuffer, kCVPixelBufferLock_ReadOnly);
+    
+    return pixelBuffer;
+
+}
+
+- (UIImage *) convertBacktoImage: (CVPixelBufferRef) pixelBuffer {
+    
+    CIImage *ciImage = [CIImage imageWithCVPixelBuffer:pixelBuffer];
+
+    CIContext *temporaryContext = [CIContext contextWithOptions:nil];
+    CGImageRef videoImage = [temporaryContext
+                             createCGImage:ciImage
+                             fromRect:CGRectMake(0, 0,
+                                                 CVPixelBufferGetWidth(pixelBuffer),
+                                                 CVPixelBufferGetHeight(pixelBuffer))];
+
+    UIImage *uiImage = [UIImage imageWithCGImage:videoImage];
+    CGImageRelease(videoImage);
+
+    return uiImage;
+ 
+}
 
 - (NSString*)pathToResourceNamed:(NSString*)name error:(NSError **)error {
     NSString* netName = [[NSBundle mainBundle] pathForResource:name ofType: @"pb"];
@@ -123,7 +206,7 @@ CGContextRef CreateRGBABitmapContext (CGImageRef inImage)
     google::protobuf::ShutdownProtobufLibrary();
 }
 
-- (nullable NSArray<NSNumber*>*) predict:(nonnull UIImage*) image{
+- (nullable NSArray<NSNumber*>*) predict:(nonnull UIImage*) start_image{
     NSMutableArray* result = nil;
     caffe2::Predictor::TensorVector output_vec;
     
@@ -132,7 +215,12 @@ CGContextRef CreateRGBABitmapContext (CGImageRef inImage)
     } else {
         self.busyWithInference = true;
     }
-    
+    UIImage *resized = [self stepOne:start_image];
+    UIImage *image224 = [self stepTwo:resized width:224 height:224];
+    CVPixelBufferRef bufferRef = [self pixelBufferFromImage2:image224];
+    NSLog(@"Buff = %@", bufferRef);
+    UIImage *image = [self convertBacktoImage:bufferRef];
+
     CGImageRef inImage = image.CGImage;
     // Create the bitmap context
     // We do this to ensure correct color space layout
@@ -144,6 +232,8 @@ CGContextRef CreateRGBABitmapContext (CGImageRef inImage)
     // Get image width, height. We'll use the entire image.
     size_t w = CGImageGetWidth(inImage);
     size_t h = CGImageGetHeight(inImage);
+    NSLog(@"h = %zu", h);
+    NSLog(@"w = %zu", w);
     CGRect rect = {{0,0},{static_cast<CGFloat>(w),static_cast<CGFloat>(h)}};
     
     // Draw the image to the bitmap context. Once we draw, the memory
@@ -183,14 +273,15 @@ CGContextRef CreateRGBABitmapContext (CGImageRef inImage)
         
         input.Resize(std::vector<int>({crops, channels, predHeight, predWidth}));
         input.ShareExternalPointer(inputPlanar.data());
-        
+
         caffe2::Predictor::TensorVector input_vec{&input};
         _predictor->run(input_vec, &output_vec);
-        
+
         if (output_vec.capacity() > 0) {
             for (auto output : output_vec) {
                 // currently only one dimensional output supported
                 result = [NSMutableArray arrayWithCapacity:output_vec.size()];
+                NSLog(@"result = %@", result);
                 for (auto i = 0; i < output->size(); ++i) {
                     result[i] = @(output->template data<float>()[i]);
                 }

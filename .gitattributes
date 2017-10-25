@@ -1,0 +1,6 @@
+src/caffe2-ios/caffe2-ios/libCAFFE2_PTHREADPOOL.a filter=lfs diff=lfs merge=lfs -text
+src/caffe2-ios/caffe2-ios/libprotobuf.a filter=lfs diff=lfs merge=lfs -text
+src/caffe2-ios/caffe2-ios/libCaffe2_CPU.a filter=lfs diff=lfs merge=lfs -text
+src/caffe2-ios/caffe2-ios/libCAFFE2_NNPACK.a filter=lfs diff=lfs merge=lfs -text
+src/caffe2-ios/caffe2-ios/predict_net.pb filter=lfs diff=lfs merge=lfs -text
+src/caffe2-ios/caffe2-ios/init_net.pb filter=lfs diff=lfs merge=lfs -text
